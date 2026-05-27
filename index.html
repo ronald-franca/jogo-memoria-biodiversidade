@@ -367,7 +367,7 @@
 
 <body>
 
-<div class="overlay" id="startOverlay">
+<div class="overlay start-overlay" id="startOverlay">
     <div class="overlay-content">
         <img src="ativos/logo.png" class="logo" alt="Logo do projeto" style="width:160px; margin-bottom:18px;">
         <h1>Jogo da Memória</h1>
@@ -390,7 +390,7 @@
 
 <div class="top-info">
     <div class="info-box">
-        <div class="info-title">Tempo restante</div>
+        <div class="info-title">Tempo</div>
         <div class="info-value" id="timer">00:00</div>
     </div>
 
@@ -435,7 +435,7 @@
 
 <input type="file" id="profileInput" accept="image/*" class="hidden">
 
-<canvas id="shareCanvas"></canvas>
+<canvas id="shareCanvas" width="1080" height="1350"></canvas>
 
 <audio id="flipSound" src="sons/flip.mp3" preload="auto"></audio>
 <audio id="matchSound" src="sons/match.mp3" preload="auto"></audio>
@@ -444,488 +444,483 @@
 <audio id="bgMusic" src="sons/music.mp3" preload="auto" loop></audio>
 
 <script>
-    const board = document.getElementById('gameBoard');
-    const timerElement = document.getElementById('timer');
-    const attemptsElement = document.getElementById('attempts');
+const board = document.getElementById('gameBoard');
+const timerElement = document.getElementById('timer');
+const attemptsElement = document.getElementById('attempts');
 
-    const startOverlay = document.getElementById('startOverlay');
-    const countdownOverlay = document.getElementById('countdownOverlay');
-    const countdownElement = document.getElementById('countdown');
-    const victoryScreen = document.getElementById('victoryScreen');
+const startOverlay = document.getElementById('startOverlay');
+const countdownOverlay = document.getElementById('countdownOverlay');
+const countdownElement = document.getElementById('countdown');
+const victoryScreen = document.getElementById('victoryScreen');
 
-    const finalTime = document.getElementById('finalTime');
-    const finalAttempts = document.getElementById('finalAttempts');
-    const rankBadge = document.getElementById('rankBadge');
-    const rankMessage = document.getElementById('rankMessage');
+const finalTime = document.getElementById('finalTime');
+const finalAttempts = document.getElementById('finalAttempts');
+const rankBadge = document.getElementById('rankBadge');
+const rankMessage = document.getElementById('rankMessage');
 
-    const startBtn = document.getElementById('startBtn');
-    const shareButton = document.getElementById('shareButton');
-    const photoButton = document.getElementById('photoButton');
-    const profileInput = document.getElementById('profileInput');
+const startBtn = document.getElementById('startBtn');
+const shareButton = document.getElementById('shareButton');
+const photoButton = document.getElementById('photoButton');
+const profileInput = document.getElementById('profileInput');
+const musicButton = document.getElementById('musicButton');
 
-    const musicButton = document.getElementById('musicButton');
+const flipSound = document.getElementById('flipSound');
+const matchSound = document.getElementById('matchSound');
+const wrongSound = document.getElementById('wrongSound');
+const victorySound = document.getElementById('victorySound');
+const bgMusic = document.getElementById('bgMusic');
 
-    const flipSound = document.getElementById('flipSound');
-    const matchSound = document.getElementById('matchSound');
-    const wrongSound = document.getElementById('wrongSound');
-    const victorySound = document.getElementById('victorySound');
-    const bgMusic = document.getElementById('bgMusic');
+const shareCanvas = document.getElementById('shareCanvas');
+const shareCtx = shareCanvas.getContext('2d');
 
-    const shareCanvas = document.getElementById('shareCanvas');
-    const shareCtx = shareCanvas.getContext('2d');
+const cardsData = [
+  'ativos/par1.jpg',
+  'ativos/par2.jpg',
+  'ativos/par3.jpg',
+  'ativos/par4.jpg'
+];
 
-    const cardsData = [
-        'ativos/par1.jpg',
-        'ativos/par2.jpg',
-        'ativos/par3.jpg',
-        'ativos/par4.jpg'
-    ];
+let gameCards = [...cardsData, ...cardsData];
 
-    let gameCards = [...cardsData, ...cardsData];
+let firstCard = null;
+let secondCard = null;
+let lockBoard = true;
 
-    let firstCard = null;
-    let secondCard = null;
-    let lockBoard = false;
+let attempts = 0;
+let matches = 0;
 
-    let attempts = 0;
-    let matches = 0;
+let seconds = 0;
+let timer = null;
+let previewTimer = null;
+let currentRank = {
+  label: 'Bronze',
+  className: 'bronze',
+  medalNumber: '3',
+  message: ''
+};
+let profileImageBase64 = null;
+let musicMuted = false;
 
-    let seconds = 0;
-    let timer;
+function shuffle(array) {
+  return array.sort(() => Math.random() - 0.5);
+}
 
-    let previewTimer;
-    let previewSeconds = 10;
+function formatTime(totalSeconds) {
+  const mins = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const secs = String(totalSeconds % 60).padStart(2, '0');
+  return `${mins}:${secs}`;
+}
 
-    let currentRank = {
-        label: 'Bronze',
-        className: 'bronze',
-        medalNumber: '3',
-        message: ''
+function playSound(audio) {
+  if (!audio) return;
+  try {
+    audio.currentTime = 0;
+    const promise = audio.play();
+    if (promise && typeof promise.catch === 'function') {
+      promise.catch(() => {});
+    }
+  } catch (e) {}
+}
+
+function createBoard() {
+  shuffle(gameCards);
+  board.innerHTML = '';
+
+  gameCards.forEach(image => {
+    const card = document.createElement('div');
+    card.classList.add('card');
+    card.dataset.image = image;
+
+    card.innerHTML = `
+      <div class="card-inner">
+        <div class="card-front">
+          <img src="ativos/verso.png" alt="Verso da carta">
+        </div>
+        <div class="card-back">
+          <img src="${image}" alt="Carta">
+        </div>
+      </div>
+    `;
+
+    board.appendChild(card);
+  });
+
+  const allCards = document.querySelectorAll('.card');
+
+  allCards.forEach(card => {
+    card.classList.add('flipped');
+  });
+
+  clearTimeout(previewTimer);
+
+  previewTimer = setTimeout(() => {
+    allCards.forEach(card => {
+      card.classList.remove('flipped');
+      card.addEventListener('click', flipCard);
+    });
+
+    lockBoard = false;
+    startTimer();
+  }, 10000);
+}
+
+function startTimer() {
+  clearInterval(timer);
+
+  timer = setInterval(() => {
+    seconds++;
+    timerElement.textContent = formatTime(seconds);
+  }, 1000);
+}
+
+function flipCard() {
+  if (lockBoard) return;
+  if (this === firstCard) return;
+  if (this.classList.contains('matched')) return;
+
+  playSound(flipSound);
+
+  this.classList.add('flipped');
+
+  if (!firstCard) {
+    firstCard = this;
+    return;
+  }
+
+  secondCard = this;
+  lockBoard = true;
+
+  attempts++;
+  attemptsElement.textContent = attempts;
+
+  checkMatch();
+}
+
+function checkMatch() {
+  const isMatch = firstCard.dataset.image === secondCard.dataset.image;
+
+  if (isMatch) {
+    playSound(matchSound);
+
+    firstCard.classList.add('matched');
+    secondCard.classList.add('matched');
+
+    matches++;
+    resetBoard();
+
+    if (matches === cardsData.length) {
+      finishGame();
+    }
+  } else {
+    playSound(wrongSound);
+
+    setTimeout(() => {
+      firstCard.classList.remove('flipped');
+      secondCard.classList.remove('flipped');
+      resetBoard();
+    }, 1000);
+  }
+}
+
+function resetBoard() {
+  firstCard = null;
+  secondCard = null;
+  lockBoard = false;
+}
+
+function getRank(attemptsValue, timeValue) {
+  const score = attemptsValue + Math.ceil(timeValue / 10);
+
+  if (score <= 7) {
+    return {
+      label: 'Ouro',
+      className: 'gold',
+      medalNumber: '1',
+      message: 'Excelente memória! Você encontrou os pares com muito controle.'
     };
+  }
 
-    let profileImageBase64 = null;
-    let musicMuted = false;
+  if (score <= 11) {
+    return {
+      label: 'Prata',
+      className: 'silver',
+      medalNumber: '2',
+      message: 'Muito bem! Você teve uma boa estratégia durante o jogo.'
+    };
+  }
 
-    function shuffle(array) {
-        return array.sort(() => Math.random() - 0.5);
+  return {
+    label: 'Bronze',
+    className: 'bronze',
+    medalNumber: '3',
+    message: 'Você conseguiu! Com mais treino, seu resultado pode ficar ainda melhor.'
+  };
+}
+
+function finishGame() {
+  clearInterval(timer);
+  clearTimeout(previewTimer);
+
+  currentRank = getRank(attempts, seconds);
+
+  finalTime.textContent = formatTime(seconds);
+  finalAttempts.textContent = attempts;
+  rankBadge.textContent = currentRank.label;
+  rankBadge.className = `rank-badge ${currentRank.className}`;
+  rankMessage.textContent = currentRank.message;
+
+  playSound(victorySound);
+
+  setTimeout(() => {
+    victoryScreen.classList.remove('hidden');
+  }, 450);
+}
+
+function startCountdown() {
+  startOverlay.classList.add('hidden');
+  countdownOverlay.classList.remove('hidden');
+
+  let count = 3;
+  countdownElement.textContent = count;
+
+  const interval = setInterval(() => {
+    count--;
+    countdownElement.textContent = count;
+
+    if (count === 0) {
+      clearInterval(interval);
+      countdownOverlay.classList.add('hidden');
+
+      seconds = 0;
+      attempts = 0;
+      matches = 0;
+      firstCard = null;
+      secondCard = null;
+      lockBoard = true;
+      timerElement.textContent = '00:00';
+      attemptsElement.textContent = '0';
+      victoryScreen.classList.add('hidden');
+
+      createBoard();
     }
+  }, 1000);
+}
 
-    function formatTime(totalSeconds) {
-        const mins = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
-        const secs = String(totalSeconds % 60).padStart(2, '0');
-        return `${mins}:${secs}`;
+function restartGame() {
+  location.reload();
+}
+
+function drawImageCover(ctx, img, x, y, w, h) {
+  const imgRatio = img.width / img.height;
+  const boxRatio = w / h;
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+
+  if (imgRatio > boxRatio) {
+    sw = img.height * boxRatio;
+    sx = (img.width - sw) / 2;
+  } else {
+    sh = img.width / boxRatio;
+    sy = (img.height - sh) / 2;
+  }
+
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (!src.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
     }
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src.startsWith('data:') ? src : `${src}?v=${Date.now()}`;
+  });
+}
 
-    function playSound(audio) {
-        if (!audio) return;
-        try {
-            audio.currentTime = 0;
-            const promise = audio.play();
-            if (promise && typeof promise.catch === 'function') {
-                promise.catch(() => {});
-            }
-        } catch (e) {}
+function canvasToBlob(canvas) {
+  return new Promise(resolve => {
+    if (canvas.toBlob) {
+      canvas.toBlob(blob => resolve(blob), 'image/png');
+    } else {
+      const dataUrl = canvas.toDataURL('image/png');
+      const parts = dataUrl.split(',');
+      const binary = atob(parts[1]);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      resolve(new Blob([bytes], { type: 'image/png' }));
     }
+  });
+}
 
-    function createBoard() {
-        shuffle(gameCards);
-        board.innerHTML = '';
+function getStoryTemplatePath(rank) {
+  if (rank.className === 'gold') return 'ativos/story-ouro.png';
+  if (rank.className === 'silver') return 'ativos/story-prata.png';
+  return 'ativos/story-bronze.png';
+}
 
-        gameCards.forEach(image => {
-            const card = document.createElement('div');
-            card.classList.add('card');
-            card.dataset.image = image;
+async function createShareImage() {
+  const rank = currentRank && currentRank.className ? currentRank : getRank(attempts, seconds);
+  const templatePath = getStoryTemplatePath(rank);
 
-            card.innerHTML = `
-                <div class="card-inner">
-                    <div class="card-front">
-                        <img src="ativos/verso.png" alt="Verso da carta">
-                    </div>
-                    <div class="card-back">
-                        <img src="${image}" alt="Carta">
-                    </div>
-                </div>
-            `;
+  const template = await loadImage(templatePath);
 
-            board.appendChild(card);
+  const canvas = shareCanvas;
+  const ctx = shareCtx;
+
+  canvas.width = template.naturalWidth || template.width || 1080;
+  canvas.height = template.naturalHeight || template.height || 1350;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(template, 0, 0, w, h);
+
+  const sx = w / 1080;
+  const sy = h / 1350;
+
+  ctx.fillStyle = '#ffffff';
+  drawRoundedRect(ctx, 238 * sx, 417 * sy, 170 * sx, 56 * sy, 18 * sx);
+  ctx.fill();
+
+  drawRoundedRect(ctx, 618 * sx, 417 * sy, 170 * sx, 56 * sy, 18 * sx);
+  ctx.fill();
+
+  ctx.fillStyle = '#c47e16';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(42 * sx)}px Arial`;
+
+  ctx.fillText(formatTime(seconds), 323 * sx, 446 * sy);
+  ctx.fillText(String(attempts).padStart(2, '0'), 703 * sx, 446 * sy);
+
+  if (profileImageBase64) {
+    try {
+      const userImg = await loadImage(profileImageBase64);
+
+      const circleX = 95 * sx;
+      const circleY = 790 * sy;
+      const circleSize = 390 * sx;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(
+        circleX + circleSize / 2,
+        circleY + circleSize / 2,
+        circleSize / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.clip();
+
+      drawImageCover(ctx, userImg, circleX, circleY, circleSize, circleSize);
+
+      ctx.restore();
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 12 * sx;
+      ctx.beginPath();
+      ctx.arc(
+        circleX + circleSize / 2,
+        circleY + circleSize / 2,
+        circleSize / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.stroke();
+    } catch (e) {}
+  }
+}
+
+async function shareToStories() {
+  try {
+    await createShareImage();
+
+    const blob = await canvasToBlob(shareCanvas);
+    if (!blob) throw new Error('Falha ao gerar imagem.');
+
+    const file = new File([blob], 'resultado-jogo-memoria.png', { type: 'image/png' });
+
+    const canShareFiles =
+      typeof navigator.share === 'function' &&
+      (
+        typeof navigator.canShare !== 'function' ||
+        navigator.canShare({ files: [file] })
+      );
+
+    if (canShareFiles) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Meu resultado no jogo da memória',
+          text: 'Completei o jogo da biodiversidade crioula!'
         });
-
-        const allCards = document.querySelectorAll('.card');
-
-        allCards.forEach(card => {
-            card.classList.add('flipped');
-        });
-
-        clearTimeout(previewTimer);
-
-        previewTimer = setTimeout(() => {
-            allCards.forEach(card => {
-                card.classList.remove('flipped');
-                card.addEventListener('click', flipCard);
-            });
-
-            lockBoard = false;
-            startTimer();
-        }, 10000);
+        return;
+      } catch (e) {}
     }
 
-    function startTimer() {
-        clearInterval(timer);
-
-        timer = setInterval(() => {
-            seconds++;
-            timerElement.textContent = formatTime(seconds);
-        }, 1000);
-    }
-
-    function flipCard() {
-        if (lockBoard) return;
-        if (this === firstCard) return;
-        if (this.classList.contains('matched')) return;
-
-        playSound(flipSound);
-
-        this.classList.add('flipped');
-
-        if (!firstCard) {
-            firstCard = this;
-            return;
-        }
-
-        secondCard = this;
-        lockBoard = true;
-
-        attempts++;
-        attemptsElement.textContent = attempts;
-
-        checkMatch();
-    }
-
-    function checkMatch() {
-        const isMatch = firstCard.dataset.image === secondCard.dataset.image;
-
-        if (isMatch) {
-            playSound(matchSound);
-
-            firstCard.classList.add('matched');
-            secondCard.classList.add('matched');
-
-            matches++;
-            resetBoard();
-
-            if (matches === cardsData.length) {
-                finishGame();
-            }
-        } else {
-            playSound(wrongSound);
-
-            setTimeout(() => {
-                firstCard.classList.remove('flipped');
-                secondCard.classList.remove('flipped');
-                resetBoard();
-            }, 1000);
-        }
-    }
-
-    function resetBoard() {
-        firstCard = null;
-        secondCard = null;
-        lockBoard = false;
-    }
-
-    function getRank(attemptsValue, timeValue) {
-        const score = attemptsValue + Math.ceil(timeValue / 10);
-
-        if (score <= 7) {
-            return {
-                label: 'Ouro',
-                className: 'gold',
-                medalNumber: '1',
-                message: 'Excelente memória! Você encontrou os pares com muito controle.'
-            };
-        }
-
-        if (score <= 11) {
-            return {
-                label: 'Prata',
-                className: 'silver',
-                medalNumber: '2',
-                message: 'Muito bem! Você teve uma boa estratégia durante o jogo.'
-            };
-        }
-
-        return {
-            label: 'Bronze',
-            className: 'bronze',
-            medalNumber: '3',
-            message: 'Você conseguiu! Com mais treino, seu resultado pode ficar ainda melhor.'
-        };
-    }
-
-    function finishGame() {
-        clearInterval(timer);
-        clearTimeout(previewTimer);
-
-        currentRank = getRank(attempts, seconds);
-
-        finalTime.textContent = formatTime(seconds);
-        finalAttempts.textContent = attempts;
-        rankBadge.textContent = currentRank.label;
-        rankBadge.className = `rank-badge ${currentRank.className}`;
-        rankMessage.textContent = currentRank.message;
-
-        playSound(victorySound);
-
-        setTimeout(() => {
-            victoryScreen.classList.remove('hidden');
-        }, 450);
-    }
-
-    function startCountdown() {
-        startOverlay.classList.add('hidden');
-        countdownOverlay.classList.remove('hidden');
-
-        let count = 3;
-        countdownElement.textContent = count;
-
-        const interval = setInterval(() => {
-            count--;
-            countdownElement.textContent = count;
-
-            if (count === 0) {
-                clearInterval(interval);
-                countdownOverlay.classList.add('hidden');
-
-                seconds = 0;
-                attempts = 0;
-                matches = 0;
-                firstCard = null;
-                secondCard = null;
-                lockBoard = true;
-                timerElement.textContent = '00:00';
-                attemptsElement.textContent = '0';
-                victoryScreen.classList.add('hidden');
-
-                createBoard();
-            }
-        }, 1000);
-    }
-
-    function restartGame() {
-        location.reload();
-    }
-
-    function drawImageCover(ctx, img, x, y, w, h) {
-        const imgRatio = img.width / img.height;
-        const boxRatio = w / h;
-        let sx = 0, sy = 0, sw = img.width, sh = img.height;
-
-        if (imgRatio > boxRatio) {
-            sw = img.height * boxRatio;
-            sx = (img.width - sw) / 2;
-        } else {
-            sh = img.width / boxRatio;
-            sy = (img.height - sh) / 2;
-        }
-
-        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-    }
-
-    function loadImage(src) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            if (!src.startsWith('data:')) {
-                img.crossOrigin = 'anonymous';
-            }
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = src.startsWith('data:') ? src : `${src}?v=${Date.now()}`;
-        });
-    }
-
-    function canvasToBlob(canvas) {
-        return new Promise(resolve => {
-            if (canvas.toBlob) {
-                canvas.toBlob(blob => resolve(blob), 'image/png');
-            } else {
-                const dataUrl = canvas.toDataURL('image/png');
-                const parts = dataUrl.split(',');
-                const binary = atob(parts[1]);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                resolve(new Blob([bytes], { type: 'image/png' }));
-            }
-        });
-    }
-
-    function getStoryTemplatePath(rank) {
-        if (rank.className === 'gold') return 'ativos/story-ouro.png';
-        if (rank.className === 'silver') return 'ativos/story-prata.png';
-        return 'ativos/story-bronze.png';
-    }
-
-    async function createShareImage() {
-        const rank = currentRank && currentRank.className ? currentRank : getRank(attempts, seconds);
-        const templatePath = getStoryTemplatePath(rank);
-
-        const template = await loadImage(templatePath);
-
-        const canvas = shareCanvas;
-        const ctx = shareCtx;
-
-        canvas.width = template.naturalWidth || template.width || 1080;
-        canvas.height = template.naturalHeight || template.height || 1350;
-
-        const w = canvas.width;
-        const h = canvas.height;
-
-        ctx.clearRect(0, 0, w, h);
-        ctx.drawImage(template, 0, 0, w, h);
-
-        const sx = w / 1080;
-        const sy = h / 1350;
-
-        ctx.fillStyle = '#ffffff';
-        drawRoundedRect(ctx, 238 * sx, 610 * sy, 170 * sx, 58 * sy, 18 * sx);
-        ctx.fill();
-
-        drawRoundedRect(ctx, 618 * sx, 610 * sy, 170 * sx, 58 * sy, 18 * sx);
-        ctx.fill();
-
-        ctx.fillStyle = '#c47e16';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.font = `${Math.round(42 * sx)}px Arial`;
-
-        ctx.fillText(formatTime(seconds), 323 * sx, 639 * sy);
-        ctx.fillText(String(attempts).padStart(2, '0'), 703 * sx, 639 * sy);
-
-        if (profileImageBase64) {
-            try {
-                const userImg = await loadImage(profileImageBase64);
-
-                const circleX = 95 * sx;
-                const circleY = 790 * sy;
-                const circleSize = 390 * sx;
-
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(
-                    circleX + circleSize / 2,
-                    circleY + circleSize / 2,
-                    circleSize / 2,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.clip();
-
-                drawImageCover(ctx, userImg, circleX, circleY, circleSize, circleSize);
-
-                ctx.restore();
-
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 12 * sx;
-                ctx.beginPath();
-                ctx.arc(
-                    circleX + circleSize / 2,
-                    circleY + circleSize / 2,
-                    circleSize / 2,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.stroke();
-            } catch (e) {}
-        }
-    }
-
-    async function shareToStories() {
-        try {
-            await createShareImage();
-
-            const blob = await canvasToBlob(shareCanvas);
-            if (!blob) throw new Error('Falha ao gerar imagem.');
-
-            const file = new File([blob], 'resultado-jogo-memoria.png', { type: 'image/png' });
-
-            const canShareFiles =
-                typeof navigator.share === 'function' &&
-                (
-                    typeof navigator.canShare !== 'function' ||
-                    navigator.canShare({ files: [file] })
-                );
-
-            if (canShareFiles) {
-                try {
-                    await navigator.share({
-                        files: [file],
-                        title: 'Meu resultado no jogo da memória',
-                        text: 'Completei o jogo da biodiversidade crioula!'
-                    });
-                    return;
-                } catch (e) {}
-            }
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'resultado-jogo-memoria.png';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1500);
-        } catch (error) {
-            alert('Não foi possível gerar a imagem para compartilhar.');
-        }
-    }
-
-    function drawRoundedRect(ctx, x, y, w, h, r) {
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r);
-        ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r);
-        ctx.arcTo(x, y, x + w, y, r);
-        ctx.closePath();
-    }
-
-    startBtn.addEventListener('click', () => {
-        startCountdown();
-
-        bgMusic.volume = 0.25;
-        bgMusic.play().catch(() => {});
-    });
-
-    musicButton.addEventListener('click', () => {
-        if (!musicMuted) {
-            bgMusic.pause();
-            musicButton.textContent = '🔇 Música';
-            musicMuted = true;
-        } else {
-            bgMusic.play().catch(() => {});
-            musicButton.textContent = '🔊 Música';
-            musicMuted = false;
-        }
-    });
-
-    photoButton.addEventListener('click', () => {
-        profileInput.click();
-    });
-
-    profileInput.addEventListener('change', () => {
-        const file = profileInput.files && profileInput.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            profileImageBase64 = reader.result;
-            photoButton.textContent = 'Foto adicionada ✓';
-        };
-        reader.readAsDataURL(file);
-    });
-
-    shareButton.addEventListener('click', shareToStories);
-
-    timerElement.textContent = '00:00';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'resultado-jogo-memoria.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  } catch (error) {
+    alert('Não foi possível gerar a imagem para compartilhar.');
+  }
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+startBtn.addEventListener('click', () => {
+  startCountdown();
+
+  bgMusic.volume = 0.25;
+  bgMusic.play().catch(() => {});
+});
+
+musicButton.addEventListener('click', () => {
+  if (!musicMuted) {
+    bgMusic.pause();
+    musicButton.textContent = '🔇 Música';
+    musicMuted = true;
+  } else {
+    bgMusic.play().catch(() => {});
+    musicButton.textContent = '🔊 Música';
+    musicMuted = false;
+  }
+});
+
+photoButton.addEventListener('click', () => {
+  profileInput.click();
+});
+
+profileInput.addEventListener('change', () => {
+  const file = profileInput.files && profileInput.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    profileImageBase64 = reader.result;
+    photoButton.textContent = 'Foto adicionada ✓';
+  };
+  reader.readAsDataURL(file);
+});
+
+shareButton.addEventListener('click', shareToStories);
+
+timerElement.textContent = '00:00';
 </script>
 
 </body>
